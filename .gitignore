@@ -1,0 +1,19 @@
+# Local Claude instructions (kept private)
+CLAUDE.md
+
+# dbt
+target/
+dbt_packages/
+logs/
+
+# DuckDB
+*.duckdb
+*.duckdb.wal
+
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+
+# Secrets
+.env
