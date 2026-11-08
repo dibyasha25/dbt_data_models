@@ -1,0 +1,9 @@
+# Kept in the project folder (not ~/.dbt/) so a fresh clone and CI just work.
+# DuckDB is a local file with no credentials, so nothing secret lives here.
+p01_tpch:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: tpch.duckdb   # relative to this folder; git-ignored
+      threads: 4
