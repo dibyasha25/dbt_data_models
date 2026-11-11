@@ -10,6 +10,10 @@
 -- Usage:
 --   uv run dbt compile --select customer_as_of --vars "{as_of: '2026-11-11 18:40:00'}"
 -- then run the compiled SQL from target/compiled/.
+-- Without --vars, as_of defaults to a far-future date, which returns each customer's
+-- current version (and keeps `dbt compile` / `dbt docs generate` from failing).
+
+{% set as_of = var("as_of", "9999-12-31 00:00:00") %}
 
 select
     c_custkey     as customer_id,
@@ -21,5 +25,5 @@ select
 
 from {{ ref('customers_snapshot') }}
 
-where dbt_valid_from <= cast('{{ var("as_of") }}' as timestamp)
-  and (dbt_valid_to > cast('{{ var("as_of") }}' as timestamp) or dbt_valid_to is null)
+where dbt_valid_from <= cast('{{ as_of }}' as timestamp)
+  and (dbt_valid_to > cast('{{ as_of }}' as timestamp) or dbt_valid_to is null)
