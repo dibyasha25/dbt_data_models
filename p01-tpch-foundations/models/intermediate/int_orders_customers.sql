@@ -1,5 +1,9 @@
 -- One row per order, enriched with customer attributes.
 -- Left join: every order survives even if its customer is missing.
+--
+-- Materialization: view (folder default). Tried ephemeral in Part 8 and went back:
+-- two marts read this model (dim_customers will make three), so ephemeral would paste
+-- the join into each of them, and a view can be queried directly when debugging.
 
 with
 
