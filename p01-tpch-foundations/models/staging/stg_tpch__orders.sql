@@ -1,8 +1,17 @@
+-- One row per order, with a readable priority label and numeric rank
+-- from the order_priority seed (left join, so no order is dropped).
+
 with
 
 source as (
 
     select * from {{ source('tpch_raw', 'orders') }}
+
+),
+
+order_priority as (
+
+    select * from {{ ref('order_priority') }}
 
 ),
 
@@ -21,6 +30,27 @@ renamed as (
 
     from source
 
+),
+
+enriched as (
+
+    select
+        renamed.order_id,
+        renamed.customer_id,
+        renamed.order_status,
+        renamed.total_price,
+        renamed.order_date,
+        renamed.order_priority,
+        order_priority.priority_label,
+        order_priority.priority_rank,
+        renamed.clerk,
+        renamed.ship_priority,
+        renamed.order_comment
+
+    from renamed
+    left join order_priority
+        on renamed.order_priority = order_priority.priority_code
+
 )
 
-select * from renamed
+select * from enriched
