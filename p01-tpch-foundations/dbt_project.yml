@@ -12,11 +12,14 @@ macro-paths: ["macros"]
 
 clean-targets: ["target", "dbt_packages"]
 
+# Materialization per layer. The trade-off is build compute vs read compute, plus freshness.
+# The key under `models:` must be the project `name:` above, or dbt ignores these
+# settings and only warns about "unused configuration paths".
 models:
   p01_tpch_foundations:
     staging:
-      +materialized: view
+      +materialized: view    # light renames + seed lookups; always current, nothing stored
     intermediate:
-      +materialized: view
+      +materialized: view    # one join, read by only two marts; cheap to recompute
     marts:
-      +materialized: table
+      +materialized: table   # read often by people and BI; pay once at build, fast reads
