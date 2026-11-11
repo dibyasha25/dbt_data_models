@@ -1,0 +1,48 @@
+version: 2
+
+seeds:
+  - name: region_codes
+    description: >
+      Display names for the 5 TPC-H regions, owned by this project and versioned in git.
+      Learning exercise: TPC-H already has a `region` table with names (in upper case);
+      this seed supplies title-case display names to practise the seed pattern.
+    config:
+      column_types:
+        region_id: integer
+        region_name: varchar
+    columns:
+      - name: region_id
+        description: Primary key. Matches stg_tpch__nation.region_id (raw `n_regionkey`).
+        data_tests:
+          - unique
+          - not_null
+      - name: region_name
+        description: Region display name in title case, e.g. 'Middle East'.
+        data_tests:
+          - not_null
+
+  - name: order_priority
+    description: >
+      Lookup for TPC-H order priority codes: a readable label and a numeric rank
+      (1 = most urgent) so priorities can be sorted and filtered without parsing text.
+    config:
+      column_types:
+        priority_code: varchar
+        priority_label: varchar
+        priority_rank: integer
+    columns:
+      - name: priority_code
+        description: >
+          Primary key. Must match raw `o_orderpriority` exactly (e.g. '4-NOT SPECIFIED');
+          any difference, even a stray space, makes the staging join miss.
+        data_tests:
+          - unique
+          - not_null
+      - name: priority_label
+        description: Readable label, e.g. 'Not Specified'.
+        data_tests:
+          - not_null
+      - name: priority_rank
+        description: 1 (Urgent) to 5 (Low). Lower means more urgent.
+        data_tests:
+          - not_null
