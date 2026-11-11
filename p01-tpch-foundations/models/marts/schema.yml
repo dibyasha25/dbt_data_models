@@ -1,0 +1,67 @@
+version: 2
+
+models:
+  - name: fct_monthly_revenue
+    description: >
+      Booked order value per calendar month and customer market segment.
+      Grain: one row per (order_month, market_segment); 80 months x 5 segments = 400 rows.
+      Built from int_orders_customers (stg_tpch__orders left-joined to stg_tpch__customers).
+      Counts orders of every status. In TPC-H, order_status is a function of order date
+      (all F up to 1994, all O from 1996, every P in 1995), so filtering on status would
+      distort the monthly trend rather than remove a category.
+    columns:
+      - name: order_month
+        description: First day of the calendar month the orders were placed in (DATE).
+        data_tests:
+          - not_null
+
+      - name: market_segment
+        description: >
+          Customer market segment from stg_tpch__customers. Would be null for an order whose
+          customer is missing; the relationships test on stg_tpch__orders.customer_id is what
+          guarantees that doesn't happen.
+        data_tests:
+          - not_null
+
+      - name: order_count
+        description: Number of distinct orders placed in the month by customers in the segment.
+        data_tests:
+          - not_null
+
+      - name: total_order_value
+        description: >
+          Sum of order total_price (dataset currency, treated as USD; after discounts, including
+          tax), all order statuses. This is booked order value, not shipped or recognised revenue.
+        data_tests:
+          - not_null
+
+  - name: fct_order_revenue
+    description: >
+      Lifetime booked order value per customer.
+      Grain: one row per customer who has placed at least one order (10,000 of 15,000 customers
+      at sf=0.1; TPC-H deliberately gives one in three customers no orders, so they don't appear).
+      Built from int_orders_customers. All order statuses are counted.
+    columns:
+      - name: customer_id
+        description: Primary key. The customer, from stg_tpch__orders.customer_id.
+        data_tests:
+          - unique
+          - not_null
+
+      - name: customer_name
+        description: >
+          From stg_tpch__customers via the left join in int_orders_customers. Null-safety is
+          enforced upstream by the relationships test on stg_tpch__orders.customer_id and
+          re-checked here.
+        data_tests:
+          - not_null
+
+      - name: total_order_value
+        description: Sum of total_price across all the customer's orders (dataset currency, treated as USD).
+        data_tests:
+          - not_null
+
+      - name: order_count
+        description: Number of distinct orders the customer has placed. Always at least 1.
+        data_tests:
+          - not_null
