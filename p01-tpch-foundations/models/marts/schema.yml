@@ -104,3 +104,38 @@ models:
         description: >
           rank() of lifetime_revenue within region_name, 1 = highest. Ties share a rank and the
           next rank is skipped; all customers with no orders tie at the bottom of their region.
+
+  - name: fct_orders_customer_at_time
+    description: >
+      Written by Claude. Each order with the customer's market segment as it was on the
+      order date (point-in-time join to customers_snapshot), next to their current segment.
+      Grain: one row per order, 150,000 rows. The snapshot uses the timestamp strategy on
+      c_updated_at, so versions are dated inside the order range (1992-1998).
+    columns:
+      - name: order_id
+        description: Primary key. The order, from stg_tpch__orders.
+        data_tests:
+          - unique
+          - not_null
+
+      - name: order_date
+        description: Date the order was placed.
+
+      - name: customer_id
+        description: The customer who placed the order.
+
+      - name: total_price
+        description: Order total (dataset currency, treated as USD; after discount, including tax).
+
+      - name: market_segment_at_order
+        description: >
+          The customer's segment in the snapshot version valid on order_date. Not null means
+          every order found exactly one version (unique order_id rules out matching two).
+        data_tests:
+          - not_null
+
+      - name: customer_version_valid_from
+        description: dbt_valid_from of the matched snapshot version (1992-01-01 unless the customer changed).
+
+      - name: current_market_segment
+        description: The customer's segment in their current snapshot version (dbt_valid_to is null).
