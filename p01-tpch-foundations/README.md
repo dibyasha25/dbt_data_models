@@ -2,6 +2,8 @@
 
 A dbt project on DuckDB that turns the TPC-H benchmark data into tested, documented models, from raw tables through staging and intermediate layers to marts. It follows a public dbt + DuckDB tutorial series, adapted to one consistent naming convention, with a few tutorial bugs found and fixed along the way.
 
+**Build history, decisions and resources:** [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md)
+
 **Stack:** dbt-core 1.12 · dbt-duckdb 1.11 · dbt_utils 1.4 · DuckDB · uv
 **Data:** TPC-H at scale factor 0.1 (150,000 orders, 600,572 order lines, 15,000 customers), generated locally
 
