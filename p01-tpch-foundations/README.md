@@ -9,44 +9,51 @@ A dbt project on DuckDB that turns the TPC-H benchmark data into tested, documen
 
 1. **How does booked order value move month by month, by customer market segment?** → `fct_monthly_revenue`
 2. **Who are the highest-value customers?** → `fct_order_revenue`
-3. **What did a customer look like at a given moment?** (segment, balance, address) → `customers_snapshot` + `analyses/customer_as_of.sql`
+3. **Who is each customer, and how do they rank by revenue in their region?** → `dim_customers`
+4. **What segment was the customer in when they placed each order?** → `customers_snapshot` + `fct_orders_customer_at_time` (point-in-time join), and `analyses/customer_as_of.sql` for any single moment
 
 ## Approach
 
 ```
 sources (tpch_raw) ─┐
 seeds (lookups) ────┴─► staging (views) ─► intermediate (view) ─► marts (tables)
-                                                    snapshot (SCD2 on raw customers)
+                                                    snapshot (SCD2 on raw customers) ─► point-in-time mart
 ```
 
 | Layer | Models | Rule |
 |---|---|---|
 | **Staging** (view) | `stg_tpch__orders`, `__customers`, `__nation`, `__region`, `__lineitem` | One source each. Rename and type only; no filters. The only joins are small seed lookups. |
 | **Intermediate** (view) | `int_orders_customers` | Orders left-joined to customers, so every order survives (150,000 in = 150,000 out). |
-| **Marts** (table) | `fct_monthly_revenue`, `fct_order_revenue` | Aggregations for people and BI. |
+| **Marts** (table) | `fct_monthly_revenue`, `fct_order_revenue`, `dim_customers`, `fct_orders_customer_at_time` | Aggregations and point-in-time facts for people and BI. |
 | **Seeds** | `region_codes`, `order_priority` | Small, project-owned lookups versioned in git and referenced with `ref()` so they show in the lineage. |
-| **Snapshot** | `customers_snapshot` | SCD Type 2 history of the **raw** customer table, `check` strategy (TPC-H has no `updated_at`). |
+| **Snapshot** | `customers_snapshot` | SCD Type 2 history of the **raw** customer table, `timestamp` strategy on `c_updated_at` (added by the load script, since TPC-H has none). |
 
 Materializations are set per folder in `dbt_project.yml`, each with a one-line reason. `int_orders_customers` was tried as `ephemeral` and kept as a view: several marts read it, and a view can be queried directly when debugging.
 
 **Grain of each mart**
 - `fct_monthly_revenue`: one row per (month, market segment), 400 rows
 - `fct_order_revenue`: one row per customer **who has ordered**, 10,000 rows (TPC-H gives one in three customers no orders)
+- `dim_customers`: one row per customer, **all 15,000**. The 5,000 with no orders get `order_count` and `lifetime_revenue` = 0 and null order dates, and tie at the bottom of `revenue_rank_in_region` (`rank()` partitioned by region)
+- `fct_orders_customer_at_time`: one row per order, 150,000 rows, each with the segment valid on the order date
 
-![Lineage](docs/lineage_part5.png)
+`region_name` comes from the `region_codes` seed via `stg_tpch__nation`. That seed is a learning exercise in seeds: TPC-H already has a `region` table with the same names.
+
+![Lineage](docs/lineage_final.png)
 
 ## Tests
 
-`dbt build` → **PASS=56, WARN=0, ERROR=0** (2 seeds, 1 snapshot, 8 models, 45 tests)
+`dbt build` → **PASS=65, WARN=0, ERROR=0** (2 seeds, 1 snapshot, 10 models, 52 tests)
 
 | Test | Count | Guards against |
 |---|---|---|
-| `not_null` | 31 | missing keys and measures; null lookups after a left join |
-| `unique` | 8 | duplicate rows on every primary key, including the `line_item_id` surrogate key |
+| `not_null` | 34 | missing keys and measures; null lookups after a left join |
+| `unique` | 10 | duplicate rows on every primary key, including the `line_item_id` surrogate key |
 | `relationships` | 3 | orders without a customer, lines without an order, priority codes missing from the seed |
 | `accepted_values` | 1 | unexpected `order_status` values (severity **warn**: a quality signal, not a reason to stop) |
 | `assert_order_date_not_in_future` | 1 | orders dated in the future |
 | `assert_lineitem_price_not_rescaled` | 1 | someone applying a cents-to-dollars conversion to prices that are already dollars |
+| `assert_dim_customers_revenue_reconciles` | 1 | `dim_customers` revenue not adding up to all orders ($21,356,596,030.63): a join fan-out or lost orders |
+| `assert_order_total_price_not_negative` | 1 | negative order totals (sign flips, refunds mixed into orders) |
 
 Every column has a description that says what it holds and what a downstream user needs to know (units, inclusions, exclusions).
 
@@ -58,15 +65,17 @@ Every column has a description that says what it holds and what a downstream use
 
 3. **The point-in-time snapshot query returned nothing.** The tutorial filters `dbt_valid_from >= start and dbt_valid_to <= end`. Current versions have `dbt_valid_to = NULL`, which fails every comparison, so it returned **0 rows**. **Fix:** `dbt_valid_from <= as_of and (dbt_valid_to > as_of or dbt_valid_to is null)`, verified before, between and after two snapshot runs.
 
-4. **Inconsistent names across the series** (`stg_orders` vs `stg_tpch__orders`, `order_key` vs `order_id`). This project uses one convention: `stg_tpch__<table>`, snake_case `*_id` columns. `strip_prefix` gives `orderkey` and `extendedprice`, so it's only used where the stripped name is already right.
+4. **The snapshot history couldn't be joined to orders at all.** With the `check` strategy, each version's `dbt_valid_from` is the time `dbt snapshot` ran (Nov 2026), but TPC-H orders are dated 1992–1998, so a point-in-time join by order date matched **zero** versions. **Fix:** the load script adds `c_updated_at` (1992-01-01 for everyone), the simulated changes are dated inside 1992–1998, and the snapshot uses the `timestamp` strategy, which takes `dbt_valid_from` from `c_updated_at`. Customer 1 moved from BUILDING to HOUSEHOLD on 1995-01-01: their 4 earlier orders show BUILDING, the 5 later ones HOUSEHOLD.
 
-5. **Seed CSV values with leading spaces.** The tutorial's CSV has spaces after commas (`1, America`), which stores `' America'` and silently breaks joins. The seeds here have none, and their column types are pinned.
+5. **Inconsistent names across the series** (`stg_orders` vs `stg_tpch__orders`, `order_key` vs `order_id`). This project uses one convention: `stg_tpch__<table>`, snake_case `*_id` columns. `strip_prefix` gives `orderkey` and `extendedprice`, so it's only used where the stripped name is already right.
+
+6. **Seed CSV values with leading spaces.** The tutorial's CSV has spaces after commas (`1, America`), which stores `' America'` and silently breaks joins. The seeds here have none, and their column types are pinned.
 
 **Also learned the hard way**
 - Switching a model to `ephemeral` doesn't drop its old view. The stale view kept answering queries until dropped by hand.
-- A `check` snapshot only watches its `check_cols`: a phone change was missed and the snapshot kept the old phone. A change made and reverted between two runs leaves no trace.
+- While on the `check` strategy, the snapshot only watched its `check_cols`: a phone change was missed. A change made and reverted between two runs leaves no trace under either strategy. The `timestamp` strategy catches any column, but only if the source bumps `updated_at`.
+- A null is not a zero: `count_if(order_count = 0)` returned 0 while 5,000 customers had a null count, because `null = 0` is unknown, not true.
 - DuckDB / dbt-duckdb have no `materialized_view`; marts stay tables.
-- The region seed is a learning exercise: TPC-H already has a `region` table with names.
 
 ## How to run
 
@@ -83,11 +92,15 @@ uv run dbt build                      # seeds, snapshot, models and tests, in DA
 
 Optional:
 ```bash
-uv run python scripts/simulate_customer_changes.py   # change 5 raw customers, then:
-uv run dbt snapshot                                   # record their history
-uv run dbt compile --select customer_as_of --vars "{as_of: '2026-11-11 18:40:00'}"
+uv run python scripts/simulate_customer_changes.py   # change 4 raw customers, dated 1995-1998, then:
+uv run dbt build                                      # snapshot their history and rebuild the point-in-time mart
+uv run dbt compile --select customer_as_of --vars "{as_of: '1996-06-01'}"
 uv run dbt docs generate && uv run dbt docs serve     # lineage and column docs
 ```
+
+## Who wrote what
+
+Built with Claude Code as a pair. I wrote `dim_customers` (including the window function) myself, from hints. Claude wrote the timestamp-snapshot redesign, `fct_orders_customer_at_time`, and the `dim_customers` and negative-price tests; those are marked "Written by Claude" in the code and commit messages.
 
 ## What I learned
 
