@@ -65,3 +65,77 @@ models:
         description: Number of distinct orders the customer has placed. Always at least 1.
         data_tests:
           - not_null
+
+  - name: dim_customers
+    description: >
+      One row per customer with lifetime order facts and their rank by revenue within
+      their region. Grain: one row per customer, all 15,000 (including the 5,000 with no
+      orders). Built from stg_tpch__customers, left-joined to orders aggregated per customer
+      (from int_orders_customers) and to stg_tpch__nation for region_name.
+    columns:
+      - name: customer_id
+        description: Primary key. The customer, from stg_tpch__customers.
+        data_tests:
+          - unique
+          - not_null
+
+      - name: customer_name
+        description: Customer name from stg_tpch__customers.
+
+      - name: region_name
+        description: Region of the customer's nation, from the region_codes seed via stg_tpch__nation.
+
+      - name: first_order_date
+        description: Date of the customer's earliest order. Null if they have never ordered.
+
+      - name: last_order_date
+        description: Date of the customer's latest order. Null if they have never ordered.
+
+      - name: order_count
+        description: Number of distinct orders. 0 (not null) for customers with no orders.
+
+      - name: lifetime_revenue
+        description: >
+          Sum of total_price across all the customer's orders, all statuses (dataset currency,
+          treated as USD). 0 (not null) for customers with no orders. The singular test
+          assert_dim_customers_revenue_reconciles checks the column sums to the total of all orders.
+
+      - name: revenue_rank_in_region
+        description: >
+          rank() of lifetime_revenue within region_name, 1 = highest. Ties share a rank and the
+          next rank is skipped; all customers with no orders tie at the bottom of their region.
+
+  - name: fct_orders_customer_at_time
+    description: >
+      Written by Claude. Each order with the customer's market segment as it was on the
+      order date (point-in-time join to customers_snapshot), next to their current segment.
+      Grain: one row per order, 150,000 rows. The snapshot uses the timestamp strategy on
+      c_updated_at, so versions are dated inside the order range (1992-1998).
+    columns:
+      - name: order_id
+        description: Primary key. The order, from stg_tpch__orders.
+        data_tests:
+          - unique
+          - not_null
+
+      - name: order_date
+        description: Date the order was placed.
+
+      - name: customer_id
+        description: The customer who placed the order.
+
+      - name: total_price
+        description: Order total (dataset currency, treated as USD; after discount, including tax).
+
+      - name: market_segment_at_order
+        description: >
+          The customer's segment in the snapshot version valid on order_date. Not null means
+          every order found exactly one version (unique order_id rules out matching two).
+        data_tests:
+          - not_null
+
+      - name: customer_version_valid_from
+        description: dbt_valid_from of the matched snapshot version (1992-01-01 unless the customer changed).
+
+      - name: current_market_segment
+        description: The customer's segment in their current snapshot version (dbt_valid_to is null).

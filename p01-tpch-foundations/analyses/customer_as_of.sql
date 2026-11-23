@@ -8,7 +8,7 @@
 -- that span the boundary.
 --
 -- Usage:
---   uv run dbt compile --select customer_as_of --vars "{as_of: '2026-11-11 18:40:00'}"
+--   uv run dbt compile --select customer_as_of --vars "{as_of: '1996-06-01'}"
 -- then run the compiled SQL from target/compiled/.
 -- Without --vars, as_of defaults to a far-future date, which returns each customer's
 -- current version (and keeps `dbt compile` / `dbt docs generate` from failing).
